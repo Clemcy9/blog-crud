@@ -1,8 +1,11 @@
 import express from "express";
+import cors from "cors";
 
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extends: true }));
+
+app.use(cors());
 
 // db.js
 import mongoose, { Mongoose } from "mongoose";
@@ -29,7 +32,7 @@ connectDb();
 // user
 const userSchema = mongoose.Schema(
   {
-    name: String,
+    name: { type: String, required: true },
     email: { type: String, unique: true, required: true },
     pswd: { type: String, required: true, select: false },
   },
@@ -39,13 +42,15 @@ const userSchema = mongoose.Schema(
 const User = mongoose.model("User", userSchema);
 
 // post
-const postSchema = mongoose.Schema({
-  title: { type: String, required: true },
-  body: String,
-  image: String,
-  date: Date,
-  user: [{ type: mongoose.Types.ObjectId, ref: "User" }],
-});
+const postSchema = mongoose.Schema(
+  {
+    title: { type: String, required: true },
+    body: String,
+    image: String,
+    user: [{ type: mongoose.Types.ObjectId, ref: "User" }],
+  },
+  { timestamps: true }
+);
 
 const Post = mongoose.model("Post", postSchema);
 
@@ -65,6 +70,7 @@ const Comment = mongoose.model("Comment", commentSchema);
 
 // create user
 app.post("/users", (req, res) => {
+  console.log("hello at the user point", req.body);
   User.create(req.body)
     .then((user) => res.status(201).json(user))
     .catch((err) => res.status(400).json(err));
@@ -131,6 +137,7 @@ app.post("/register", async (req, res) => {
 
 // login route
 app.post("/login", async (req, res) => {
+  console.log("hello at login");
   const { email, pswd } = req.body;
   if (!email || !pswd) {
     return res.status(400).json({ msg: "email/password required" });
@@ -138,12 +145,14 @@ app.post("/login", async (req, res) => {
 
   const user = await User.findOne({ email: email }).select("+pswd");
   if (!user) {
-    return res.status(401).json({ msg: "invalid credentials" });
+    return res
+      .status(401)
+      .json({ msg: "invalid credentials:user does not exist" });
   }
 
   const compare_pswd = await bcrypt.compare(pswd, user.pswd);
   if (!compare_pswd) {
-    return res.status(401).json({ msg: "invalid credentials" });
+    return res.status(401).json({ msg: "invalid credentials: wrong pswd" });
   }
 
   // generate token
@@ -158,12 +167,12 @@ function authMiddleware(req, res, next) {
   // check if token is present in headers
   const token = req.headers["authorization"];
   if (!token) {
-    return res.status(401).json({ message: "unauthorized" });
+    return res.status(401).json({ message: "unauthorized:no token" });
   }
   // verify token
   try {
     const decoded = jwt.verify(token, "secret");
-    req.user = decoded;
+    req.body["user"] = decoded;
     next();
   } catch (error) {
     return res.status(401).json({ message: "unauthorized" });
@@ -178,4 +187,49 @@ function createToken(user) {
     expiresIn: "1h",
   });
 }
-app.listen("5000", () => console.log("server running"));
+
+// posts
+
+// create posts
+app.post("/posts", authMiddleware, async (req, res) => {
+  const { title, body, image, user } = req.body;
+  console.log("user is:", user);
+  // const user = req.body["user"]
+
+  // create the post
+  // const post = new Post({})
+  const posts = await Post.create({ title, body, image, user: user.id });
+  res.status(201).json(posts);
+});
+
+// read posts
+app.get("/posts", async (req, res) => {
+  // read or list all posts
+  const posts = await Post.find();
+  res.status(200).json(posts);
+});
+
+app.get("/posts/:postid", authMiddleware, async (req, res) => {
+  // read a single post (detailed)
+  const post = await Post.findById(req.params["postid"]);
+  res.status(200).json(post);
+});
+
+app.patch("/posts/:postid", authMiddleware, async (req, res) => {
+  const post = await Post.findByIdAndUpdate(req.params["postid"]);
+  res.status(200).json({ msg: "updated" });
+});
+
+app.delete("/post/:postid", authMiddleware, async (req, res) => {
+  const user = req.body["user"];
+  const post = await Post.findById(req.params["postid"]);
+  const post_user = post.user;
+
+  // check if user trying to delete is same with user that created post
+  if (user == post_user) {
+    res.send("user is same");
+  }
+  res.status(200).json({ msg: "deleted" });
+});
+
+app.listen(5000, () => console.log("server running"));
