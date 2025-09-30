@@ -131,7 +131,7 @@ app.post("/register", async (req, res) => {
     const user = await User.create({ name, email, pswd: hashed_pswd });
     res.status(201).json({ msg: "user created successfully" });
   } catch (error) {
-    res.status(400).json(error);
+    res.status(500).json(error);
   }
 });
 
@@ -165,16 +165,19 @@ app.post("/login", async (req, res) => {
 // middleware to protect routes
 function authMiddleware(req, res, next) {
   // check if token is present in headers
-  const token = req.headers["authorization"];
+  const token = req.headers["authorization"]?.split(" ")[1];
+  console.log("auth token:", token, typeof token);
   if (!token) {
     return res.status(401).json({ message: "unauthorized:no token" });
   }
   // verify token
   try {
     const decoded = jwt.verify(token, "secret");
+    console.log("decoded=", decoded);
     req.body["user"] = decoded;
     next();
   } catch (error) {
+    console.log(error);
     return res.status(401).json({ message: "unauthorized" });
   }
 }
@@ -184,7 +187,7 @@ import jwt from "jsonwebtoken";
 
 function createToken(user) {
   return jwt.sign({ id: user._id, email: user.email }, "secret", {
-    expiresIn: "1h",
+    expiresIn: "24h",
   });
 }
 
@@ -205,7 +208,7 @@ app.post("/posts", authMiddleware, async (req, res) => {
 // read posts
 app.get("/posts", async (req, res) => {
   // read or list all posts
-  const posts = await Post.find();
+  const posts = await Post.find().populate("user");
   res.status(200).json(posts);
 });
 
